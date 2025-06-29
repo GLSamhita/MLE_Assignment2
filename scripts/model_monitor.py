@@ -91,65 +91,6 @@ def plot_psi_chart(psi_df, psi_value, feature_name, snapshot_date, save_path):
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
 
-def update_auc_trend(auc_value, snapshot_date, model_name, monitor_directory):
-    """Update AUC trend CSV and create plot"""
-    auc_csv_path = os.path.join(monitor_directory, f"{model_name[:-4]}_auc_trend.csv")
-    
-    # Create new record
-    new_record = pd.DataFrame({
-        'snapshot_date': [snapshot_date],
-        'auc_score': [auc_value],
-        'gini_score': [2 * auc_value - 1]
-    })
-    
-    # Load existing data if exists, otherwise create new
-    if os.path.exists(auc_csv_path):
-        auc_df = pd.read_csv(auc_csv_path)
-        auc_df['snapshot_date'] = pd.to_datetime(auc_df['snapshot_date'])
-        
-        # Remove existing record for same date if exists
-        auc_df = auc_df[auc_df['snapshot_date'] != pd.to_datetime(snapshot_date)]
-        
-        # Append new record
-        auc_df = pd.concat([auc_df, new_record], ignore_index=True)
-    else:
-        auc_df = new_record
-    
-    # Sort by date
-    auc_df['snapshot_date'] = pd.to_datetime(auc_df['snapshot_date'])
-    auc_df = auc_df.sort_values('snapshot_date').reset_index(drop=True)
-    
-    # Save updated CSV
-    auc_df.to_csv(auc_csv_path, index=False)
-    
-    # Create AUC trend plot
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
-    
-    # AUC trend
-    ax1.plot(auc_df['snapshot_date'], auc_df['auc_score'], marker='o', linewidth=2, markersize=6)
-    ax1.axhline(y=0.5, color='r', linestyle='--', alpha=0.7, label='Random (0.5)')
-    ax1.set_ylabel('AUC Score')
-    ax1.set_title(f'Model Performance Trend - {model_name[:-4]}')
-    ax1.grid(True, alpha=0.3)
-    ax1.legend()
-    ax1.set_ylim(0.4, 1.0)
-    
-    # GINI trend
-    ax2.plot(auc_df['snapshot_date'], auc_df['gini_score'], marker='s', linewidth=2, markersize=6, color='orange')
-    ax2.axhline(y=0, color='r', linestyle='--', alpha=0.7, label='Random (0.0)')
-    ax2.set_xlabel('Snapshot Date')
-    ax2.set_ylabel('GINI Score')
-    ax2.set_title('GINI Coefficient Trend')
-    ax2.grid(True, alpha=0.3)
-    ax2.legend()
-    
-    plt.tight_layout()
-    plot_path = os.path.join(monitor_directory, f"{model_name[:-4]}_auc_trend.png")
-    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    return auc_df
-
 def create_kde_plots(feature_data, prediction_data, feature_name, snapshot_date, model_name, monitor_directory):
     """Create KDE plots for feature and prediction distributions"""
     
@@ -253,18 +194,6 @@ def main(snapshotdate, modelname):
                     how='inner'
                 )
                 
-                if len(perf_data) > 0:
-                    # Calculate AUC
-                    auc_score = roc_auc_score(perf_data['label'], perf_data['model_predictions'])
-                    print(f"Current AUC Score: {auc_score:.4f}")
-                    print(f"Current GINI Score: {2*auc_score-1:.4f}")
-                    
-                    # Update AUC trend
-                    auc_df = update_auc_trend(auc_score, config["snapshot_date_str"], 
-                                            config["model_name"], config["monitor_directory"])
-                    print("AUC trend updated and plotted")
-                else:
-                    print("No matching records between predictions and labels")
             else:
                 print(f"No labels found for date {config['snapshot_date_str']}")
         else:
@@ -279,15 +208,19 @@ def main(snapshotdate, modelname):
             baseline_features_pdf = baseline_features_sdf.toPandas()
             print(f"Loaded {len(baseline_features_pdf)} baseline feature records from {baseline_date}")
             
-            # Calculate PSI for monthly_inhand_salary feature
-            if 'monthly_inhand_salary' in current_features_pdf.columns and 'monthly_inhand_salary' in baseline_features_pdf.columns:
-                # Remove null values
-                baseline_salary = baseline_features_pdf['monthly_inhand_salary'].dropna()
-                current_salary = current_features_pdf['monthly_inhand_salary'].dropna()
+            # Calculate PSI for outstanding_debt feature
+            if 'outstanding_debt' in current_features_pdf.columns and 'outstanding_debt' in baseline_features_pdf.columns:
+                # Remove null values and handle negative values (debt can be 0 or positive)
+                baseline_debt = baseline_features_pdf['outstanding_debt'].dropna()
+                current_debt = current_features_pdf['outstanding_debt'].dropna()
                 
-                if len(baseline_salary) > 0 and len(current_salary) > 0:
-                    psi_value, psi_df = calculate_psi(baseline_salary, current_salary)
-                    print(f"PSI for monthly_inhand_salary: {psi_value:.4f}")
+                # Filter out negative values if any (outstanding debt should be >= 0)
+                baseline_debt = baseline_debt[baseline_debt >= 0]
+                current_debt = current_debt[current_debt >= 0]
+                
+                if len(baseline_debt) > 0 and len(current_debt) > 0:
+                    psi_value, psi_df = calculate_psi(baseline_debt, current_debt)
+                    print(f"PSI for outstanding_debt: {psi_value:.4f}")
                     
                     # Interpret PSI
                     if psi_value < 0.1:
@@ -302,7 +235,7 @@ def main(snapshotdate, modelname):
                     # Create PSI plot
                     psi_plot_path = os.path.join(config["monitor_directory"], 
                                                 f"{config['model_name'][:-4]}_psi_{config['snapshot_date_str'].replace('-', '_')}.png")
-                    plot_psi_chart(psi_df, psi_value, 'monthly_inhand_salary', 
+                    plot_psi_chart(psi_df, psi_value, 'outstanding_debt', 
                                  config["snapshot_date_str"], psi_plot_path)
                     print("PSI plot created")
                     
@@ -310,7 +243,7 @@ def main(snapshotdate, modelname):
                     psi_results = pd.DataFrame({
                         'snapshot_date': [config["snapshot_date_str"]],
                         'baseline_date': [baseline_date],
-                        'feature_name': ['monthly_inhand_salary'],
+                        'feature_name': ['outstanding_debt'],
                         'psi_value': [psi_value],
                         'psi_status': [psi_status]
                     })
@@ -329,17 +262,19 @@ def main(snapshotdate, modelname):
                 else:
                     print("Insufficient data for PSI calculation")
             else:
-                print("monthly_inhand_salary feature not found in data")
+                print("outstanding_debt feature not found in data")
         else:
             print(f"No baseline data found for {baseline_date}")
         
         # --- Create KDE Plots ---
         print("Creating KDE plots...")
-        if 'monthly_inhand_salary' in current_features_pdf.columns:
-            salary_data = current_features_pdf['monthly_inhand_salary'].dropna()
+        if 'outstanding_debt' in current_features_pdf.columns:
+            debt_data = current_features_pdf['outstanding_debt'].dropna()
+            # Filter out negative values for visualization
+            debt_data = debt_data[debt_data >= 0]
             prediction_data = current_predictions_pdf['model_predictions']
             
-            create_kde_plots(salary_data, prediction_data, 'monthly_inhand_salary',
+            create_kde_plots(debt_data, prediction_data, 'outstanding_debt',
                            config["snapshot_date_str"], config["model_name"], 
                            config["monitor_directory"])
             print("KDE plots created")
@@ -356,14 +291,9 @@ def main(snapshotdate, modelname):
             f.write(f"Snapshot Date: {config['snapshot_date_str']}\n")
             f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
             
-            if 'auc_score' in locals():
-                f.write(f"Performance Metrics:\n")
-                f.write(f"- AUC Score: {auc_score:.4f}\n")
-                f.write(f"- GINI Score: {2*auc_score-1:.4f}\n\n")
-            
             if 'psi_value' in locals():
                 f.write(f"Data Stability (PSI):\n")
-                f.write(f"- Feature: monthly_inhand_salary\n")
+                f.write(f"- Feature: outstanding_debt\n")
                 f.write(f"- PSI Value: {psi_value:.4f}\n")
                 f.write(f"- Status: {psi_status}\n\n")
             
